@@ -1,4 +1,7 @@
-filterpy
-scipy
-ultralytics
 opencv-python
+ultralytics 
+filterpy 
+scipy 
+lap 
+pillow
+tensorflow

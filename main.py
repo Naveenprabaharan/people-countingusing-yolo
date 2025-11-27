@@ -18,7 +18,7 @@ last_positions = {}
 # Define counting line (horizontal)
 count_line_y = 300
 
-cap = cv2.VideoCapture(2)  # Or CCTV stream
+cap = cv2.VideoCapture(0)  # Or CCTV stream
 
 while True:
     ret, frame = cap.read()
