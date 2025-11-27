@@ -20,16 +20,16 @@ tracker = DS_Tracker(metric)  # other tracker args use defaults (max_age, n_init
 counter_in = 0
 counter_out = 0
 
-# Store last x-center for each ID (for vertical line counting)
+# Store last y-center for each ID
 last_positions = {}
 
-# Define counting line (vertical)
-count_line_x = 300  # adjust this x coordinate as needed
+# Define counting line (horizontal)
+count_line_y = 300
 
 # Feature vector size for appearance (use encoder later to replace this)
 FEATURE_DIM = 128
 
-cap = cv2.VideoCapture('video/Walking.mp4')  # Or CCTV stream
+cap = cv2.VideoCapture(0)  # Or CCTV stream
 
 while True:
     ret, frame = cap.read()
@@ -79,8 +79,8 @@ while True:
         track_id = int(getattr(track, "track_id", getattr(track, "track_id_", -1)))
         track_items.append((x1, y1, x2, y2, track_id))
 
-    # Draw vertical counting line
-    cv2.line(frame, (count_line_x, 0), (count_line_x, frame.shape[0]), (0, 255, 255), 2)
+    # Draw line
+    cv2.line(frame, (0, count_line_y), (frame.shape[1], count_line_y), (0, 255, 255), 2)
 
     for x1, y1, x2, y2, track_id in track_items:
         cx = int((x1 + x2) / 2)
@@ -91,17 +91,17 @@ while True:
         cv2.putText(frame, f'ID:{int(track_id)}', (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        # Check movement direction across vertical line (use x center)
+        # Check movement direction
         if track_id in last_positions:
-            prev_x = last_positions[track_id]
-            # Person moving right → IN
-            if prev_x < count_line_x <= cx:
+            prev_y = last_positions[track_id]
+            # Person moving down → IN
+            if prev_y < count_line_y <= cy:
                 counter_in += 1
-            # Person moving left → OUT
-            elif prev_x > count_line_x >= cx:
+            # Person moving up → OUT
+            elif prev_y > count_line_y >= cy:
                 counter_out += 1
 
-        last_positions[track_id] = cx
+        last_positions[track_id] = cy
 
     # Show counters
     cv2.putText(frame, f"In: {counter_in}", (20, 40),

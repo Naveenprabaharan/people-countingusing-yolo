@@ -1,29 +1,49 @@
-# FILE: deep_sort/detection.py
-
+# vim: expandtab:ts=4:sw=4
 import numpy as np
 
-class Detection:
-    """Simple detection wrapper for DeepSORT.
 
-    bbox: [x1, y1, x2, y2]
-    confidence: float
-    feature: np.ndarray (embedding)
+class Detection(object):
     """
-    def __init__(self, tlbr, confidence, feature):
-        self.tlbr = np.asarray(tlbr, dtype=np.float32)
-        self.confidence = float(confidence)
-        self.feature = feature
+    This class represents a bounding box detection in a single image.
 
-    def to_tlwh(self):
-        x1, y1, x2, y2 = self.tlbr
-        w = x2 - x1
-        h = y2 - y1
-        return np.array([x1, y1, w, h], dtype=np.float32)
+    Parameters
+    ----------
+    tlwh : array_like
+        Bounding box in format `(x, y, w, h)`.
+    confidence : float
+        Detector confidence score.
+    feature : array_like
+        A feature vector that describes the object contained in this image.
+
+    Attributes
+    ----------
+    tlwh : ndarray
+        Bounding box in format `(top left x, top left y, width, height)`.
+    confidence : ndarray
+        Detector confidence score.
+    feature : ndarray | NoneType
+        A feature vector that describes the object contained in this image.
+
+    """
+
+    def __init__(self, tlwh, confidence, feature):
+        self.tlwh = np.asarray(tlwh, dtype=np.float64)
+        self.confidence = float(confidence)
+        self.feature = np.asarray(feature, dtype=np.float32)
+
+    def to_tlbr(self):
+        """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
+        `(top left, bottom right)`.
+        """
+        ret = self.tlwh.copy()
+        ret[2:] += ret[:2]
+        return ret
 
     def to_xyah(self):
-        x1, y1, x2, y2 = self.tlbr
-        w = x2 - x1
-        h = y2 - y1
-        cx = x1 + w / 2.
-        cy = y1 + h / 2.
-        return np.array([cx, cy, a if (a:=w / float(h)) else 0., h], dtype=np.float32)
+        """Convert bounding box to format `(center x, center y, aspect ratio,
+        height)`, where the aspect ratio is `width / height`.
+        """
+        ret = self.tlwh.copy()
+        ret[:2] += ret[2:] / 2
+        ret[2] /= ret[3]
+        return ret
