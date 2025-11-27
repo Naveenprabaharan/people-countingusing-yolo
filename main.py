@@ -7,14 +7,24 @@ from deep_sort.detection import Detection as DS_Detection
 from deep_sort.tracker import Tracker as DS_Tracker
 from deep_sort import nn_matching
 
+# New: OSNet ReID extractor
+from deep_sort.osnet_reid import OSNetReID
+
 # Load YOLO model
 model = YOLO("yolov8n.pt")
 
-# Deep SORT metric and tracker configuration
-max_cosine_distance = 0.2
-nn_budget = 100
+# Instantiate ReID extractor (provide model_path if you have a local osnet .pth)
+# If you don't have weights, install torchreid and download OSNet weights or pass a path.
+reid_model_path = './deep_sort/osnet_model/osnet_x1_0_imagenet.pth'  # e.g. "deep_sort/osnet_x1_0_pretrained.pth"
+extractor = OSNetReID(model_path=reid_model_path)
+FEATURE_DIM = extractor.feat_dim
+
+# Deep SORT metric and tracker configuration (tuned)
+max_cosine_distance = 0.45   # loosened for robustness; tune between 0.3..0.6
+nn_budget = 150              # keep more embeddings per ID
 metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-tracker = DS_Tracker(metric)  # other tracker args use defaults (max_age, n_init, ...)
+# tune tracker lifecycle: n_init (confirm), max_age (occlusion tolerance), max_iou_distance
+tracker = DS_Tracker(metric, max_iou_distance=0.7, max_age=30, n_init=2)
 
 # Counting variables
 counter_in = 0
@@ -25,9 +35,6 @@ last_positions = {}
 
 # Define counting line (vertical)
 count_line_x = 300  # adjust this x coordinate as needed
-
-# Feature vector size for appearance (use encoder later to replace this)
-FEATURE_DIM = 128
 
 cap = cv2.VideoCapture('video/Walking.mp4')  # Or CCTV stream
 
@@ -47,18 +54,34 @@ while True:
 
     detections = np.array(detections)
 
-    # Convert to Deep SORT Detection objects (tlwh, confidence, feature)
-    ds_dets = []
+    # Prepare boxes for ReID extractor (tlwh)
+    tlwh_boxes = []
     for det in detections:
         x1, y1, x2, y2, conf = det
         w = x2 - x1
         h = y2 - y1
+        tlwh_boxes.append([float(x1), float(y1), float(w), float(h)])
+
+    # Run ReID extractor in batch
+    if len(tlwh_boxes) > 0:
+        reid_feats = extractor.extract(frame, tlwh_boxes)  # NxFEATURE_DIM, L2-normalized
+    else:
+        reid_feats = np.zeros((0, FEATURE_DIM), dtype=np.float32)
+
+    # Convert to Deep SORT Detection objects (tlwh, confidence, feature)
+    ds_dets = []
+    for i, det in enumerate(detections):
+        x1, y1, x2, y2, conf = det
+        w = x2 - x1
+        h = y2 - y1
         tlwh = [float(x1), float(y1), float(w), float(h)]
-        # Provide a non-zero normalized dummy feature so cosine distance is valid.
-        # Replace with real ReID features by adding an encoder and filling `feature`.
-        dummy_feat = np.ones(FEATURE_DIM, dtype=np.float32)
-        dummy_feat /= np.linalg.norm(dummy_feat)
-        ds_dets.append(DS_Detection(tlwh, float(conf), feature=dummy_feat))
+        # match features by index; if extractor skipped invalid boxes, lengths should still match.
+        if i < reid_feats.shape[0]:
+            feat = reid_feats[i]
+        else:
+            feat = np.ones(FEATURE_DIM, dtype=np.float32)
+            feat /= np.linalg.norm(feat)
+        ds_dets.append(DS_Detection(tlwh, float(conf), feature=feat))
 
     # Run Deep SORT
     tracker.predict()

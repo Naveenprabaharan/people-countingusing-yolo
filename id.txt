@@ -1,0 +1,19 @@
+Appearance metric
+matching_threshold (cosine): loosen → 0.35–0.6 to allow matches; tighten → 0.2–0.35 to avoid false merges.
+budget (gallery size): 50–200. Larger keeps more embeddings per ID (better for reappearances), uses more memory.
+Tracker lifecycle
+n_init: 1–3. Lower = faster confirmation, higher = fewer short-lived false IDs.
+max_age: 10–60. Higher tolerates occlusions; too high keeps dead tracks.
+max_iou_distance: 0.6–0.85 used for IOU acceptance.
+Features
+Replace dummy ones with real ReID embeddings (preferred). Ensure L2 normalization.
+If installing a ReID model is slow, use a low-cost interim feature (color histogram, HOG) — much better than constant vector.
+Average or keep last K features per track (track-level feature aggregation) instead of single-frame.
+Motion
+Use a Kalman filter / motion model for prediction — reduces ID switches on jitter.
+Matching strategy
+Combine appearance + IOU (weighted). Use appearance first, fallback to IOU if metric has no samples or distance too high.
+Use matching cascade (age-based) to prefer recently seen tracks.
+Debugging
+Print feature shapes, per-track feature counts, and pairwise distances for a few tracks to verify similarity.
+Visualize similarity scores on frames to see why matches fail.
