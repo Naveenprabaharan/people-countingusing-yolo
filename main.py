@@ -29,7 +29,10 @@ count_line_x = 300  # adjust this x coordinate as needed
 # Feature vector size for appearance (use encoder later to replace this)
 FEATURE_DIM = 128
 
-cap = cv2.VideoCapture('video/Walking.mp4')  # Or CCTV stream
+suffix = "192.168.1.41:554/Streaming/channels/102/"
+IP_CAMERA_URL = f"rtsp://admin:Cogn!@2023@{suffix}"
+# input_Stream = 0
+cap = cv2.VideoCapture(IP_CAMERA_URL)  # Or CCTV stream
 
 while True:
     ret, frame = cap.read()
@@ -109,7 +112,7 @@ while True:
     cv2.putText(frame, f"Out: {counter_out}", (20, 80),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-    cv2.imshow("People Counter (Deep SORT)", frame)
+    cv2.imshow("People Counter (Deep SORT)", cv2.resize(frame,(640,480)))
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
