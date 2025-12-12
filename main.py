@@ -32,32 +32,52 @@ FEATURE_DIM = 128
 suffix = "192.168.1.41:554/Streaming/channels/102/"
 IP_CAMERA_URL = f"rtsp://admin:Cogn!@2023@{suffix}"
 
-# ----------------------------------------------
-# Better RTSP handling using OpenCV + FFmpeg
-# ----------------------------------------------
-gst = (
-    f"rtspsrc location={IP_CAMERA_URL} latency=0 ! "
-    "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
-)
+import cv2
+import threading
+import time
 
-# Try with GStreamer first (more stable)
-use_gst = False   # Set True if GStreamer installed
+class RTSPStream:
+    def __init__(self, url):
+        self.url = url
+        self.frame = None
+        self.stopped = False
+        
+        self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-if use_gst:
-    cap = cv2.VideoCapture(gst, cv2.CAP_GSTREAMER)
-else:
-    # FFmpeg config for stable RTSP reading
-    cap = cv2.VideoCapture(IP_CAMERA_URL, cv2.CAP_FFMPEG)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)          # Drop old frames
-    cap.set(cv2.CAP_PROP_FPS, 25)                # Helps some cameras
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 1)
+        thread = threading.Thread(target=self.update, daemon=True)
+        thread.start()
+
+    def update(self):
+        while not self.stopped:
+            ret, frame = self.cap.read()
+            if ret:
+                self.frame = frame   # ALWAYS REPLACE old frame (no queue)
+            else:
+                # Reconnect
+                self.cap.release()
+                time.sleep(1)
+                self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    def read(self):
+        return self.frame
+
+    def stop(self):
+        self.stopped = True
+        self.cap.release()
+suffix = "192.168.1.41:554/Streaming/channels/102/"
+URL = f"rtsp://admin:Cogn!@2023@{suffix}?rtsp_transport=tcp"
+
+stream = RTSPStream(URL)
 
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    frame = stream.read()
+    if frame is None:
+        continue   # wait for first frame
 
-    results = model(frame, classes=[0])  # Only person class
+
+    results = model(frame, classes=[0],stream=True)  # Only person class
 
     detections = []
     for r in results:
