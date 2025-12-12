@@ -31,8 +31,26 @@ FEATURE_DIM = 128
 
 suffix = "192.168.1.41:554/Streaming/channels/102/"
 IP_CAMERA_URL = f"rtsp://admin:Cogn!@2023@{suffix}"
-# input_Stream = 0
-cap = cv2.VideoCapture(IP_CAMERA_URL)  # Or CCTV stream
+
+# ----------------------------------------------
+# Better RTSP handling using OpenCV + FFmpeg
+# ----------------------------------------------
+gst = (
+    f"rtspsrc location={IP_CAMERA_URL} latency=0 ! "
+    "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
+)
+
+# Try with GStreamer first (more stable)
+use_gst = False   # Set True if GStreamer installed
+
+if use_gst:
+    cap = cv2.VideoCapture(gst, cv2.CAP_GSTREAMER)
+else:
+    # FFmpeg config for stable RTSP reading
+    cap = cv2.VideoCapture(IP_CAMERA_URL, cv2.CAP_FFMPEG)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)          # Drop old frames
+    cap.set(cv2.CAP_PROP_FPS, 25)                # Helps some cameras
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 1)
 
 while True:
     ret, frame = cap.read()
