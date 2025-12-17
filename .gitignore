@@ -4,3 +4,5 @@ yolov8n.pt
 video/
 YOLOv8-DeepSORT-Object-Tracking/
 model/
+yolo12n.pt
+people_count.db

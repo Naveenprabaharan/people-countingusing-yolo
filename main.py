@@ -1,158 +1,29 @@
-import cv2
-from ultralytics import YOLO
-import numpy as np
+from multiprocessing import Process
+from db import init_db
+from camera_counter import run_camera
 
-# Deep SORT imports (use the local deep_sort package)
-from deep_sort.detection import Detection as DS_Detection
-from deep_sort.tracker import Tracker as DS_Tracker
-from deep_sort import nn_matching
-
-# Load YOLO model
-model = YOLO("yolo12n.pt")
-
-# Deep SORT metric and tracker configuration
-max_cosine_distance = 0.2
-nn_budget = 100
-metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-tracker = DS_Tracker(metric)  # other tracker args use defaults (max_age, n_init, ...)
-
-# Counting variables
-counter_in = 0
-counter_out = 0
-
-# Store last x-center for each ID (for vertical line counting)
-last_positions = {}
-
-# Define counting line (vertical)
-count_line_x = 300  # adjust this x coordinate as needed
-
-# Feature vector size for appearance (use encoder later to replace this)
-FEATURE_DIM = 128
-
-suffix = "192.168.1.41:554/Streaming/channels/102/"
-IP_CAMERA_URL = f"rtsp://admin:Cogn!@2023@{suffix}"
-
-import cv2
-import threading
-import time
-
-class RTSPStream:
-    def __init__(self, url):
-        self.url = url
-        self.frame = None
-        self.stopped = False
-        
-        self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        thread = threading.Thread(target=self.update, daemon=True)
-        thread.start()
-
-    def update(self):
-        while not self.stopped:
-            ret, frame = self.cap.read()
-            if ret:
-                self.frame = frame   # ALWAYS REPLACE old frame (no queue)
-            else:
-                # Reconnect
-                self.cap.release()
-                time.sleep(1)
-                self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
-                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-    def read(self):
-        return self.frame
-
-    def stop(self):
-        self.stopped = True
-        self.cap.release()
-suffix = "192.168.1.91:554/Streaming/channels/102/" #91,74
-URL = f"rtsp://admin:Cogn!@2023@{suffix}?rtsp_transport=tcp"
-
-stream = RTSPStream(URL)
-
-while True:
-    frame = stream.read()
-    if frame is None:
-        continue   # wait for first frame
+init_db()
 
 
-    results = model(frame, classes=[0],stream=True)  # Only person class
+IP_CAMERA_URL1 = f"rtsp://admin:Cogn!@2023@192.168.1.74:554/Streaming/channels/102/"
+IP_CAMERA_URL2 = f"rtsp://admin:Cogn!@2023@192.168.1.91:554/Streaming/channels/102/"
 
-    detections = []
-    for r in results:
-        for box in r.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0])
-            detections.append([x1, y1, x2, y2, conf])
+cam_in = Process(target=run_camera, args=(
+    IP_CAMERA_URL1,
+    300,
+    "IN",
+    "ENTRY CAMERA"
+))
 
-    detections = np.array(detections)
+cam_out = Process(target=run_camera, args=(
+    IP_CAMERA_URL2,
+    300,
+    "OUT",
+    "EXIT CAMERA"
+))
 
-    # Convert to Deep SORT Detection objects (tlwh, confidence, feature)
-    ds_dets = []
-    for det in detections:
-        x1, y1, x2, y2, conf = det
-        w = x2 - x1
-        h = y2 - y1
-        tlwh = [float(x1), float(y1), float(w), float(h)]
-        # Provide a non-zero normalized dummy feature so cosine distance is valid.
-        # Replace with real ReID features by adding an encoder and filling `feature`.
-        dummy_feat = np.ones(FEATURE_DIM, dtype=np.float32)
-        dummy_feat /= np.linalg.norm(dummy_feat)
-        ds_dets.append(DS_Detection(tlwh, float(conf), feature=dummy_feat))
+cam_in.start()
+cam_out.start()
 
-    # Run Deep SORT
-    tracker.predict()
-    tracker.update(ds_dets)
-
-    # Collect confirmed tracks
-    track_items = []
-    for track in tracker.tracks:
-        # typical Deep SORT Track API: is_confirmed(), time_since_update, to_tlbr(), track_id
-        if hasattr(track, "is_confirmed") and not track.is_confirmed():
-            continue
-        if hasattr(track, "time_since_update") and track.time_since_update > 1:
-            continue
-        if hasattr(track, "to_tlbr"):
-            x1, y1, x2, y2 = map(int, track.to_tlbr())
-        else:
-            continue
-        track_id = int(getattr(track, "track_id", getattr(track, "track_id_", -1)))
-        track_items.append((x1, y1, x2, y2, track_id))
-
-    # Draw vertical counting line
-    cv2.line(frame, (count_line_x, 0), (count_line_x, frame.shape[0]), (0, 255, 255), 2)
-
-    for x1, y1, x2, y2, track_id in track_items:
-        cx = int((x1 + x2) / 2)
-        cy = int((y1 + y2) / 2)
-
-        # Draw tracker box & id
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (50, 255, 50), 2)
-        cv2.putText(frame, f'ID:{int(track_id)}', (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-        # Check movement direction across vertical line (use x center)
-        if track_id in last_positions:
-            prev_x = last_positions[track_id]
-            # Person moving right → IN
-            if prev_x < count_line_x <= cx:
-                counter_in += 1
-            # Person moving left → OUT
-            elif prev_x > count_line_x >= cx:
-                counter_out += 1
-
-        last_positions[track_id] = cx
-
-    # Show counters
-    cv2.putText(frame, f"In: {counter_in}", (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-    cv2.putText(frame, f"Out: {counter_out}", (20, 80),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-    cv2.imshow("People Counter (Deep SORT)", cv2.resize(frame,(640,480)))
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+cam_in.join()
+cam_out.join()
