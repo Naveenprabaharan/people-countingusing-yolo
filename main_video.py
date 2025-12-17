@@ -6,9 +6,10 @@ import numpy as np
 from deep_sort.detection import Detection as DS_Detection
 from deep_sort.tracker import Tracker as DS_Tracker
 from deep_sort import nn_matching
-
+name = "yolo12s"
 # Load YOLO model
-model = YOLO("yolo12n.pt")
+# model = YOLO("yolov8n.pt")
+model = YOLO(f"{name}.pt")
 
 # Deep SORT metric and tracker configuration
 max_cosine_distance = 0.2
@@ -66,15 +67,26 @@ class RTSPStream:
     def stop(self):
         self.stopped = True
         self.cap.release()
-suffix = "192.168.1.91:554/Streaming/channels/102/" #91,74
-URL = f"rtsp://admin:Cogn!@2023@{suffix}?rtsp_transport=tcp"
+# suffix = "192.168.1.41:554/Streaming/channels/102/"
+# URL = f"rtsp://admin:Cogn!@2023@{suffix}?rtsp_transport=tcp"
 
-stream = RTSPStream(URL)
+# stream = RTSPStream(URL)
+input_video = f"/home/cognitica_ai_user/NPS/Github/ownspace/object_tracking/video/Walking_.mp4"          # your input file
+output_video = f"{name}.mp4"   # your output filename
+cap = cv2.VideoCapture(input_video)
+
+fps = cap.get(cv2.CAP_PROP_FPS)
+width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # or 'XVID'
+out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
+
 
 while True:
-    frame = stream.read()
-    if frame is None:
-        continue   # wait for first frame
+    ret, frame = cap.read()
+    if not ret:
+        break
 
 
     results = model(frame, classes=[0],stream=True)  # Only person class
@@ -149,6 +161,7 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
     cv2.putText(frame, f"Out: {counter_out}", (20, 80),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    out.write(frame)
 
     cv2.imshow("People Counter (Deep SORT)", cv2.resize(frame,(640,480)))
     if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -156,3 +169,4 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+out.release()

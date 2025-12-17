@@ -3,3 +3,4 @@ venv/
 yolov8n.pt
 video/
 YOLOv8-DeepSORT-Object-Tracking/
+model/
