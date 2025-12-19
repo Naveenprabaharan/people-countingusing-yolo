@@ -14,32 +14,40 @@ class RTSPStream:
     def __init__(self, url):
         self.url = url
         self.frame = None
+        self.last_ts = 0
+        self.lock = threading.Lock()
         self.stopped = False
-        
-        self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+
+        self.cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        thread = threading.Thread(target=self.update, daemon=True)
-        thread.start()
+        threading.Thread(target=self.update, daemon=True).start()
 
     def update(self):
         while not self.stopped:
             ret, frame = self.cap.read()
             if ret:
-                self.frame = frame   # ALWAYS REPLACE old frame (no queue)
+                with self.lock:
+                    self.frame = frame
+                    self.last_ts = time.time()
             else:
-                # Reconnect
                 self.cap.release()
                 time.sleep(1)
                 self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-    def read(self):
-        return self.frame
+    def read(self, max_age=0.3):
+        with self.lock:
+            if self.frame is None:
+                return None
+            if time.time() - self.last_ts > max_age:
+                return None
+            return self.frame.copy()
 
     def stop(self):
         self.stopped = True
         self.cap.release()
+
 
 
 def run_camera(
@@ -51,7 +59,12 @@ def run_camera(
     model = YOLO("yolo12n.pt")
 
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", 0.2, 100)
-    tracker = Tracker(metric)
+    # tracker = Tracker(metric)
+    tracker = Tracker(
+    metric,
+    max_age=30,     # allow missed frames
+    n_init=2
+    )
 
     last_positions = {}
 
@@ -62,7 +75,7 @@ def run_camera(
         if frame is None:
             continue
 
-        results = model(frame, classes=[0], stream=True)
+        results = model(frame, classes=[0], verbose=False)
         detections = []
 
         for r in results:

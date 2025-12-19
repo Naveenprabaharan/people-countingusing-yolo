@@ -1,29 +1,110 @@
-from multiprocessing import Process
-from db import init_db
-from camera_counter import run_camera
+
+
+# ================= CONFIG =================
+
+
+ENTRY_RTSP = (
+    "rtsp://admin:Cogn!@2023@192.168.1.74:554/Streaming/channels/102/"#rtsp://admin:Cogn!@2023@192.168.1.74/Streaming/channels/102
+    "?rtsp_transport=tcp&fflags=nobuffer&flags=low_delay&max_delay=0"
+)
+EXIT_RTSP = (
+    "rtsp://admin:Cogn!@2023@192.168.1.61:554/Streaming/channels/102/"
+    "?rtsp_transport=tcp&fflags=nobuffer&flags=low_delay&max_delay=0"
+)
+
+
+# =========================================
+import cv2
+import time
+from ultralytics import YOLO
+from db import init_db, increment_in, increment_out
+from rtsp_stream import RTSPStream
+
+# ================= CONFIG =================
+
+COUNT_LINE_X = 300
+FRAME_SKIP = 2
+# =========================================
 
 init_db()
 
+# 🔥 ONE YOLO MODEL
+model = YOLO("yolo12n.pt")
 
-IP_CAMERA_URL1 = f"rtsp://admin:Cogn!@2023@192.168.1.74:554/Streaming/channels/102/"
-IP_CAMERA_URL2 = f"rtsp://admin:Cogn!@2023@192.168.1.91:554/Streaming/channels/102/"
+entry_last_pos = {}
+exit_last_pos = {}
 
-cam_in = Process(target=run_camera, args=(
-    IP_CAMERA_URL1,
-    300,
-    "IN",
-    "ENTRY CAMERA"
-))
+entry_stream = RTSPStream(ENTRY_RTSP)
+exit_stream  = RTSPStream(EXIT_RTSP)
 
-cam_out = Process(target=run_camera, args=(
-    IP_CAMERA_URL2,
-    300,
-    "OUT",
-    "EXIT CAMERA"
-))
+frame_id = 0
 
-cam_in.start()
-cam_out.start()
+def process_camera(frame, last_pos, direction, window):
+    frame = cv2.resize(frame, (640, 384))
 
-cam_in.join()
-cam_out.join()
+    # 🔥 ByteTrack enabled automatically
+    results = model.track(
+        frame,
+        persist=True,
+        tracker="bytetrack.yaml",
+        classes=[0],
+        verbose=False
+    )
+
+    cv2.line(frame, (COUNT_LINE_X, 0),
+             (COUNT_LINE_X, frame.shape[0]), (0,255,255), 2)
+
+    boxes = results[0].boxes
+    # if boxes is None:
+    #     cv2.imshow(window, frame)
+    #     return
+
+    for box in boxes:
+        if box.id is not None:
+            tid = int(box.id[0])
+        else: continue
+
+        x1,y1,x2,y2 = map(int, box.xyxy[0])
+        cx = (x1 + x2) // 2
+
+        if tid in last_pos:
+            prev = last_pos[tid]
+            if direction == "IN" and prev < COUNT_LINE_X <= cx:
+                increment_in()
+            elif direction == "OUT" and prev > COUNT_LINE_X >= cx:
+                increment_out()
+
+        last_pos[tid] = cx
+
+        cv2.rectangle(frame,(x1,y1),(x2,y2),(0,255,0),2)
+        cv2.putText(frame,f"ID:{tid}",(x1,y1-8),
+                    cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,255,0),2)
+
+    cv2.imshow(window, frame)
+
+# ================= MAIN LOOP =================
+while True:
+    entry_frame = entry_stream.read()
+    exit_frame  = exit_stream.read()
+
+    frame_id += 1
+    if frame_id % FRAME_SKIP != 0:
+        # if entry_frame is not None:
+        #     cv2.imshow("ENTRY", entry_frame)
+        # if exit_frame is not None:
+        #     cv2.imshow("EXIT", exit_frame)
+        cv2.waitKey(1)
+        continue
+
+    if entry_frame is not None:
+        process_camera(entry_frame, entry_last_pos, "IN", "ENTRY")
+
+    if exit_frame is not None:
+        process_camera(exit_frame, exit_last_pos, "OUT", "EXIT")
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+entry_stream.stop()
+exit_stream.stop()
+cv2.destroyAllWindows()

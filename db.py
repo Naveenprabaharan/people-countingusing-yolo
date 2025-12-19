@@ -1,3 +1,38 @@
+# import sqlite3
+# import threading
+
+# DB_PATH = "people_count.db"
+# lock = threading.Lock()
+
+# def init_db():
+#     conn = sqlite3.connect(DB_PATH)
+#     c = conn.cursor()
+#     c.execute("""
+#         CREATE TABLE IF NOT EXISTS people_count (
+#             id INTEGER PRIMARY KEY,
+#             total_in INTEGER DEFAULT 0,
+#             total_out INTEGER DEFAULT 0
+#         )
+#     """)
+#     c.execute("INSERT OR IGNORE INTO people_count (id) VALUES (1)")
+#     conn.commit()
+#     conn.close()
+
+# def increment_in():
+#     with lock:
+#         conn = sqlite3.connect(DB_PATH)
+#         conn.execute("UPDATE people_count SET total_in = total_in + 1 WHERE id=1")
+#         conn.commit()
+#         conn.close()
+
+# def increment_out():
+#     with lock:
+#         conn = sqlite3.connect(DB_PATH)
+#         conn.execute("UPDATE people_count SET total_out = total_out + 1 WHERE id=1")
+#         conn.commit()
+#         conn.close()
+
+
 import sqlite3
 import threading
 
